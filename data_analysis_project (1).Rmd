@@ -1,0 +1,461 @@
+---
+title: "data_analysis_pr"
+output: html_document
+date: "2025-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(ggbreak)
+library(vcd)
+library(FSA)
+library(nnet)
+library(effects)
+library(ggeffects)
+```
+
+```{txt}
+Rutoxicon is the corpus of toxic comments gathered from Internet forums such as Pikabu and Dvach. For this corpus the comments were collected and annotated manually by following criteria:
+  - text: the text of the comment itself
+  - tox: the sentence or a large phrase that contains toxic message
+  - tox_rate: the rate of toxicity - how offensive and cruel the comment is based on the scale from 1 to 10, 1 being the lowest grade and 10 the highest, referring to the most insulting, hurtful comments
+  - response: on what the toxic comment was written - author, person (as the commentator) or post, where in the post we also indicate was it a person or an object, 
+  - phrase: the minimal toxic phrase
+  - phrase_types: type of the phrase based on the way toxicity was explicited: direct and indirect - metaphors 
+  - lex: the toxic lexeme itself
+  - lex_counts: the amount of lexemes in the toxic phrase 
+  - Pos: part of speech of the lexeme taken from Mystem
+```
+
+
+```{r}
+tox_data <- read_csv('rutoxicon_pos1.csv')
+head(tox_data)
+```
+```{r}
+tox_data$response <- as.factor(tox_data$response)
+tox_data$tox_type <- as.factor(tox_data$tox_type)
+tox_data$phrase_types <- as.factor(tox_data$phrase_types)
+tox_data$Pos <- as.factor(tox_data$Pos)
+summary(tox_data)
+sum(is.na(tox_data))
+```
+`
+```{r}
+glimpse(tox_data)
+```
+```{r}
+tox_data%>%
+  ggplot(aes(phrase_types, fill=phrase_types))+
+  geom_histogram(stat="count", color = 'black')+
+  xlab('Типы фраз')+
+  ylab('Количество фраз')+
+  theme_minimal()+
+  scale_fill_brewer(palette = "Set2") 
+```
+```{txt}
+As we can see there is a disbalance of classes, indirect group being two times smaller than direct group, because in our research we used only phrases that contained at least 1 word that is why the amount of indirect phrases was reduced. 
+```
+
+```{r}
+tox_data%>%
+  ggplot(aes(response, fill=response))+
+  geom_histogram(stat="count", color = "black")+
+  theme_minimal()+
+  xlab('Тип адресата токсичности')+
+  ylab('Количество токсичных текстов')+
+  scale_fill_brewer(palette = "Set2")
+```
+```{txt}
+We see a disbalance in classes, where insults towards inanimate objects are less common rather than toxic comment towards animate objects. 
+```
+
+```{r}
+tox_data%>%
+  ggplot(aes(x=Pos, fill = Pos))+
+  geom_histogram(stat='count', color= 'black')+
+  ggtitle('Количество частей речи')+
+  xlab('Часть речи') +
+  ylab('Количество')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+
+```{txt}
+As we see the nouns present the largest group. Other classes are quite small and hard to see, so we are going to filter parts of speech whose occurence is less than 10.
+```
+
+```{r}
+tox_data%>%
+  group_by(Pos)%>%
+  filter(n()>10)%>%
+  ggplot(aes(x=Pos, fill = Pos))+
+  geom_histogram(stat='count', color= 'black')+
+  ggtitle('Количество частей речи')+
+  xlab('Часть речи') +
+  ylab('Количество')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+```{r}
+tox_data%>%
+  group_by(Pos)%>%
+  filter(n()>10)%>%
+  ggplot(aes(x=Pos, fill = Pos))+
+  geom_histogram(stat='count', color= 'black')+
+  #geom_text(aes(label = after_stat(), vjust = 0.5, size = 1)) +
+  scale_y_break(c(500, 1000), scales = 0.5, ticklabels = c(seq(0, 500, by=50), seq(1000, 1500, by=100)), space = 0.2)+
+  ggtitle('Количество частей речи')+
+  xlab('Часть речи') +
+  ylab('Количество')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+```{txt}
+Now it is easier to see that the difference between the classes. Verbs are the second largest class with less than 400 toxic words, the third class is adjectives, with less than 300 words. 
+```
+
+
+
+```{r}
+tox_data %>%
+  group_by(Pos) %>%
+  filter(n()>10)%>%
+  ggplot(aes(x = Pos, y = tox_rate, fill = Pos)) +  
+  geom_boxplot(
+    outlier.colour = "red", 
+    outlier.shape = 1, 
+    outlier.alpha = 0.5) +
+  xlab('Часть речи') +
+  ylab('Рейтинг токсичности')+
+  #scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+```{r}
+tox_data %>%
+  ggplot(aes(x=tox_type, y = tox_rate))+
+  geom_boxplot(aes(color=tox_type), outlier.colour = "red", outlier.shape = 1, outlier.alpha = 0.5)+
+  xlab('Тип токсичности')+
+  ylab('Рейтинг токсичности')+
+  scale_y_continuous(breaks =c(0,2,4,6,8,10))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+tox_data%>%
+  ggplot(aes(x=lex_counts, y=tox_rate))+
+  geom_jitter(stat = "identity", colour='#588800')+
+  scale_y_continuous(breaks=c(1, 3, 5, 7, 9))+
+  scale_x_continuous(breaks=c(1, 2, 3, 4, 5))+
+  geom_smooth(method = "lm", color = "black", se = TRUE)+
+  xlab('Количество лексем')+
+  ylab('Рейтинг токсичности')+
+  theme_minimal()
+```
+```{r}
+tox_data %>%
+  group_by(Pos) %>%
+  filter(n()>10)%>%
+  ggplot(aes(x=tox_type, fill = tox_type))+
+  geom_histogram(stat='count', color= 'black')+
+  theme_minimal()+
+  #scale_y_continuous(limits = c(0, 300))+
+  ggtitle('Распределение типов токсичности по частям речи')+
+  xlab('Тип токсичности')+
+  ylab('Количество фраз')+
+  scale_fill_brewer(palette = "Set3")+
+  theme(axis.text.x = element_blank())+
+  facet_wrap(~Pos)+
+   coord_cartesian(ylim = c(0, 250)) 
+```
+```{txt}
+H0: Type of toxic comment has no influence on the toxic rate of the comment
+H1: Type of toxic comment has influence on the toxic rate of the comment
+As the toxic rate is discrete variable and type of toxicity is a categorial variable, we are going to use chis-square test. But in order to do it, we have to know that at least 80% of expected values should have more than 5 ..? 
+```
+
+
+```{r}
+tox.tabulated <- tox_data %>%
+  select(tox_rate, tox_type) %>%
+  table()
+tox.tabulated
+```
+```{txt}
+As we can see a lot of classes do not have all the presented ratings scores. So, in order to calculate the chi-score correctly we are going to delete columns: hate_speech: race, hate_speech: religion, harassment, hate_speech: lgbtq*, and rows: 1, 2, 3
+```
+
+
+```{r}
+tox.tab_short <- tox.tabulated[-c(1,2,3), -c(2, 4, 6, 7)]
+tox.tab_short
+```
+
+
+```{r}
+tox.chisq <- chisq.test(tox.tabulated)
+tox.chisq
+```
+```{r}
+round(tox.chisq$expected, 1)
+```
+
+```{r}
+tox.chisq1 <- chisq.test(tox.tab_short)
+tox.chisq1
+```
+```{r}
+round(tox.chisq1$expected, 1)
+```
+
+
+```{txt}
+Our results (X-squared = 185.24, df = 24, p-value < 2.2e-16) allow us to reject the null hypothesis about the type of toxic comment having no influence on the toxic rate of the comment as p-value is less than 1%. From this follows that certain types of toxic comment tend to have certain rating scores, for example "profanity" can be usually interpret as middle-toxicity, having the toxic ratings around 5-8. 
+```
+
+```{r}
+table_small <- tox.tab_short |> as.matrix() |> as.table()
+mosaic(table_small, shade = TRUE, legend = TRUE, 
+        labeling = labeling_border(rot_labels = c(45,0, 0, 0), 
+                                  offset_label =c(.5,3,0, 0),
+                                  varnames = c(FALSE, TRUE),
+                                  just_labels=c("center","right"),
+                                  tl_varnames = FALSE))
+```
+```{r}
+library(RColorBrewer)
+colours <- brewer.pal(n = ncol(tox.tab_short), name = 'Set2')
+mosaicplot(tox.tab_short,main="Зависимость типа токсичности от рейтинга",
+           legend = TRUE,
+           xlab = 'Рейтинг',
+          ylab = 'Тип токсичности',
+          col = colours, 
+          las = 1)
+```
+
+```{txt}
+This figure depicts that the types of toxicity like hate_speech: nationality and threat tend to be interpreted as highly rude and offensive with scores 8-10. This could be explained by the cruelness of these comments, in which calls for death and violence can be found. 
+```
+
+
+
+```{txt}
+H0: Number of lexemes has no influence on the toxic rate of the comment
+H1: Number of lexemes has influence on the toxic rate of the comment
+As the toxic rate is discrete variable and type of toxicity is a categorial variable, we are going to use chis-square test. But in order to do it, we have to know that at least 80% of expected values should be more than 5.0
+```
+
+```{r}
+lex.tabulated <- tox_data %>%
+  select(tox_rate, lex_counts) %>%
+  table()
+lex.tabulated
+```
+```{r}
+lex_short <- lex.tabulated[-c(1,2), -c(4,5)]
+lex_short
+```
+```{txt}
+In order to get the corect score of approximated Chi-squared we reduced the amount of lexemes in the table and deleted the uncommon rating scores like 1, 2
+```
+
+
+```{r}
+lex.chisq <- chisq.test(lex_short)
+lex.chisq
+```
+```{r}
+round(lex.chisq$expected, 1)
+```
+
+```{r}
+colours <- brewer.pal(n = ncol(lex_short), name = 'Set2')
+mosaicplot(lex_short,main="Зависимость рейтинга от количества токсичных лексем во фразе",
+           legend = TRUE,
+           xlab = 'Рейтинг',
+          ylab = 'Количество токсичных лексем',
+          col = colours, 
+          las = 1)
+```
+```{txt}
+Our results (X-squared = 153.09, df = 14, p-value < 2.2e-16) allow us to reject the null hypothesis about the type of toxic comment having no influence on the toxic rate of the comment on the 99% interval as the p-value is less than 1%. This figure shows us that having more than 1 lexeme could result in having the higher toxicity ratings. As we see it is very uncommon for toxic comments to be counted as less toxic when 3 toxic lexemes occurr in a phrase. 
+```
+ 
+ 
+ 
+```{r}
+tox.phrase <- tox_data %>%
+  select(tox_rate, phrase_types) %>%
+  table()
+tox.phrase
+```
+```{r}
+phrase.chisq <- chisq.test(tox.phrase)
+phrase.chisq
+```
+```{r}
+mosaicplot(tox.phrase,main="Зависимость типа токсичности от рейтинга",
+           legend = TRUE,
+           xlab = 'Тип фразы',
+          ylab = 'Тип токсичности',
+          col = colours, 
+          las = 1)
+```
+
+```{txt}
+H0: Part of speech has no influence on the number of lexemes
+H1: Number of lexemes has influence on the toxic rate of the comment
+As the toxic rate is discrete variable and type of toxicity is a categorial variable, we are going to use chis-square test. But in order to do it, we have to know that at least 80% of expected values should be more than 5.0
+```
+
+
+```{r}
+lex.pos <- tox_data %>%
+  select(lex_counts, Pos) %>%
+  table()
+lex.pos
+```
+```{r}
+lex.pos_short <- lex.pos[-c(5), -c(3,4,5, 7)]
+lex.pos_short
+```
+```{r}
+pos.chisq <- chisq.test(lex.pos_short)
+pos.chisq
+```
+```{r}
+round(pos.chisq$expected, 1)
+```
+```{r}
+mosaicplot(lex.pos_short,main="Зависимость количества слов в фразе от частей речи",
+           legend = TRUE,
+           xlab = 'Количество лексем',
+          ylab = 'Часть речи',
+          col = colours, 
+          las = 1)
+```
+
+```{txt}
+
+```
+
+```{r}
+multi_model <- multinom(tox_rate ~ tox_type + response + phrase_types + lex_counts + Pos, data = tox_data)
+```
+```{r}
+summary(multi_model)
+```
+
+```{r}
+predicted_classes <- predict(multi_model, newdata = tox_data)
+probs <- predict(multi_model, newdata = tox_data, "probs")
+
+conf_matrix <- as.data.frame(table(predicted_classes, tox_data$tox_rate))
+```
+
+```{r}
+ggplot(conf_matrix, aes(x = Var2, y = predicted_classes, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
+```{r}
+gg_effects <- ggpredict(multi_model, terms = names(coef(multi_model))[-1])
+plot(gg_effects)
+```
+```{r}
+glimpse(tox_data)
+```
+
+```{r}
+tox_clean <- tox_data %>%
+  select(-c(1, 2, 3, 7, 9)) %>%
+  mutate(
+    tox_group = factor(case_when(
+      tox_rate %in% 1:3 ~ "low_tox",
+      tox_rate %in% 4:6 ~ "mid_tox",
+      tox_rate %in% 7:8 ~ "high_tox",
+      tox_rate %in% 9:10 ~ "extreme_tox"
+    ), levels = c("low_tox", "mid_tox", "high_tox", "extreme_tox")),
+    across(tox_type, as.factor)
+  )%>%
+  filter(tox_type != "hate_speech: religion")%>%
+  filter(response != "post: inanimate")%>%
+  group_by(Pos)%>%
+  mutate(keep = ifelse(Pos == "S", row_number() <= 500, TRUE)) %>%
+  filter(keep) %>%
+  select(-keep) %>%
+  filter(n()>50)%>%
+  droplevels()
+
+glimpse(tox_clean)
+```
+```{r}
+summary(tox_clean)
+```
+```{r}
+multi_model_clean <- multinom(tox_group ~ tox_type + response + phrase_types + lex_counts + Pos, data = tox_clean)
+```
+```{r}
+summary(multi_model_clean)
+```
+```{r}
+predicted_classes1 <- predict(multi_model_clean, newdata = tox_clean)
+probs1 <- predict(multi_model_clean, newdata = tox_clean, "probs")
+
+conf_matrix1 <- as.data.frame(table(predicted_classes1, tox_clean$tox_group))
+```
+
+```{r}
+ggplot(conf_matrix1, aes(x = Var2, y = predicted_classes1, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
+```{r}
+gg_effects1 <- ggpredict(multi_model_clean, terms = names(coef(multi_model_clean))[-1])
+plot(gg_effects1)
+```
+```{txt}
+
+```
+
+```{r}
+multi_model_pos <- multinom(tox_group ~ lex_counts + Pos, data = tox_clean)
+```
+```{r}
+summary(multi_model_pos)
+```
+```{r}
+predicted_classes_pos <- predict(multi_model_pos, newdata = tox_clean)
+probs_pos <- predict(multi_model_pos, newdata = tox_clean, "probs")
+
+conf_matrix_pos <- as.data.frame(table(predicted_classes_pos, tox_clean$tox_group))
+```
+
+```{r}
+ggplot(conf_matrix_pos, aes(x = Var2, y = predicted_classes_pos, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
