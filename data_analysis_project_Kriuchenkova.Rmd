@@ -1,0 +1,528 @@
+---
+title: "data_analysis_pr"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-05-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(RColorBrewer)
+library(ggbreak)
+library(vcd)
+library(FSA)
+library(nnet)
+library(effects)
+library(ggeffects)
+```
+
+
+# Introduction
+
+In the world of fast-developing technologies, where the Internet has become the main source of communication and entertainment, people find it easier to express their opinion and believes openly, hidden behind the anonymity that the Internet provides. They express not only positive, but also negative attitude on open forums, on social media. It becomes increasingly harder to filter those comments to create a safe environment as there are a lot of ways to express the toxicity. For this purpose we created Rutoxicon to make the Internet a better place. 
+
+**Rutoxicon** is the corpus of toxic comments gathered from Internet forums such as Pikabu and Dvach. For this corpus the comments were collected and annotated manually by following criteria:
+-  **text**: the text of the comment itself;
+  
+- **tox**: the sentence or a large phrase that contains toxic message;
+
+- **tox_rate**: the rate of toxicity - how offensive and cruel the comment is based on the scale from 1 to 10, 1 being the lowest grade and 10 the highest, referring to the most insulting, hurtful comments;
+
+- **response**: on what the toxic comment was written - author, person (as the commentator) or post, where in the post we also indicate was it a person or an object;
+
+- **phrase**: the minimal toxic phrase;
+
+- **phrase_types**: type of the phrase based on the way toxicity was explicited: direct and indirect - metaphors; 
+
+- **lex**: the toxic lexeme itself;
+
+- **lex_counts**: the amount of lexemes in the toxic phrase; 
+
+- **Pos**: part of speech of the lexeme taken from Mystem;
+
+In this research we would like to focus on the toxic lexemes. Russian language is known for its large variety of obscene words, thanks to well-developed morphology and word formation. In our research we would like to find out what parts of speech function as the source of toxicity in the speech more often than others. Also, we would like to analyse the specific in the usage of different types of toxicity. 
+
+
+# Data
+```{r}
+tox_data <- read_csv('rutoxicon_pos1.csv')
+head(tox_data)
+```
+```{r}
+tox_data$response <- as.factor(tox_data$response)
+tox_data$tox_type <- as.factor(tox_data$tox_type)
+tox_data$phrase_types <- as.factor(tox_data$phrase_types)
+tox_data$Pos <- as.factor(tox_data$Pos)
+summary(tox_data)
+sum(is.na(tox_data))
+```
+For the sake of further analysis we transfered some columns like: type of response, type of toxicity, part of speech, type of phrase into factors. All in all, our dataset consists of 1097 unique sentences and 1883 lexemes. AS the annotation of parts of speech was done with the help of the library Mystem on Python, not all of the words have part of speech, for example different abbreviations*(ТП, РСП)*.
+
+As we see now, our classes are not quite balanced, the mean toxic rate is 6.678, which is quite high as scores 6-7 usually describe increased toxicity (implicit threats, unacceptable hints) and the median value of toxicity rate is 7, even higher than the mean value. 
+
+```{r}
+glimpse(tox_data)
+```
+```{r}
+tox_data%>%
+  ggplot(aes(phrase_types, fill=phrase_types))+
+  geom_histogram(stat="count", color = 'black')+
+  xlab('Phrase types')+
+  ylab('The amount of phrases')+
+  ggtitle('Distribution of phrases')+
+  theme_minimal()+
+  scale_fill_brewer(palette = "Set2") 
+```
+
+The following graphic depicts the proportion of different classes of phrases. We can see there is a disbalance of classes, indirect group being two times smaller than direct group. The probable explanation for such proportion lies partially behind the specifics of this research, we used only phrases that contained at least 1 word, that is why the amount of indirect phrases was reduced. Another reason for such proportion would be the uniqueness and creativeness required from the speaker in order to create metaphoric and other types of tropes. 
+
+
+```{r}
+tox_data%>%
+  ggplot(aes(response, fill=response))+
+  geom_histogram(stat="count", color = "black")+
+  theme_minimal()+
+  xlab('The type of response')+
+  ylab('The amount of toxic comments')+
+  ggtitle('Distribution of responses')+
+  scale_fill_brewer(palette = "Set2")
+```
+
+In this figure we can see the proportion of the toxic comments according to the type of the response. There is a disbalance in classes, where insults and toxicity towards inanimate objects are less common rather than cruelty towards animate objects. It is visible that people in the Internet tend to express their negativity towards the people described in the post, those who can not react and respond to the hate.
+
+
+```{r}
+tox_data%>%
+  ggplot(aes(x=Pos, fill = Pos))+
+  geom_histogram(stat='count', color= 'black')+
+  ggtitle('The proportion of PoS')+
+  xlab('Part of speech') +
+  ylab('The amount of lexemes')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+
+
+In this figure the proportion of parts of speech is presented. As we see some parts of speech are barely presented, so for the sake of better visualization, we are going to filter parts of speech whose occurrence is less than 20.
+
+
+```{r}
+tox_data%>%
+  group_by(Pos)%>%
+  filter(n()>20)%>%
+  ggplot(aes(x=Pos, fill = Pos))+
+  geom_histogram(stat='count', color= 'black')+
+  scale_y_break(c(500, 1000), scales = 0.5, ticklabels = c(seq(0, 500, by=50), seq(1000, 1500, by=100)), space = 0.2)+
+  ggtitle('The proportion of PoS')+
+  xlab('Part of speech') +
+  ylab('The amount of lexemes')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+
+
+Now it is easier to see that the difference between the classes. Nouns present the largest group of the toxic lexemes with more than 1100 words. Such difference could be explained by the large paradig of words formation in the Russian language and the speakers' desires to hide the obscene words by changing 1-2 letters or using a homonyms. Verbs are the second largest class with less than 400 toxic words, the third class is presented by adjectives, with less than 300 words, as they are usually used in noun phrases to increase the expressiveness of the phrase. 
+
+
+```{r}
+tox_data %>%
+  group_by(Pos) %>%
+  filter(n()>20)%>%
+  ggplot(aes(x = Pos, y = tox_rate, fill = Pos)) +  
+  geom_boxplot(
+    outlier.colour = "red", 
+    outlier.shape = 1, 
+    outlier.alpha = 0.5) +
+  ggtitle('The boxplots of PoS')+
+  xlab('Part of speech') +
+  ylab('The rate of toxicity')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+
+
+The figure above depicts the boxplots of parts of speech. As we see the verbs and the adverbs are used in the sentences with higher toxicity rate in comparison to adjectives and nouns, only outliers are found among low values. Though it is very important to note that adverbs are not particularly common in extremely toxic comments. The boxplots of adjectives and nouns are rather similar which could be explained by the usage of adjectives in noun phrases.
+
+```{r}
+tox_data %>%
+  ggplot(aes(x=tox_type, y = tox_rate))+
+  geom_boxplot(aes(color=tox_type), outlier.colour = "red", outlier.shape = 1, outlier.alpha = 0.5)+
+  ggtitle('The boxplots of types of toxicity')+
+  xlab('Type of toxicity')+
+  ylab('The rate of toxicity')+
+  scale_y_continuous(breaks =c(0,2,4,6,8,10))+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+The figure above depicts the toxic rate dependence on the type of toxicity. The toxicity type, *harassment*, is shown to be one of the most toxic, which could be explained by the harsh and mostly obscene language used in these comments. Among other groups with high rate of toxicity are *hate_speech: nationality*, *hate_speech: religion* and *threat*. The least toxic group here is *hate_speech: race* as it is not quite of the current interest among the users of the Internet forums.
+
+
+```{r}
+tox_data%>%
+  ggplot(aes(x=lex_counts, y=tox_rate))+
+  geom_jitter(stat = "identity", colour='#90a4cc')+
+  scale_y_continuous(breaks=c(2, 4, 6, 8, 10))+
+  #scale_x_continuous(breaks=c(1, 2, 3, 4, 5))+
+  scale_x_continuous(breaks = c(1, 2, 3, 4, 5), limits = c(1, NA))+
+  geom_smooth(method = "lm", color = "black", se = TRUE, fullrange = TRUE)+
+  xlab('The amount of lexemes')+
+  ylab('The rate of toxicity')+
+  theme_minimal()
+```
+
+
+The following figure shows the relationship between the amount of lexemes and the rate of toxicity. As we can see, the more toxic words appear in the sentence, the higher the probability of the sentence to be count extremly toxic (8-10).
+
+```{r}
+tox_data %>%
+  group_by(Pos) %>%
+  filter(n()>20)%>%
+  ggplot(aes(x=tox_type, fill = tox_type))+
+  geom_histogram(stat='count', color= 'black')+
+  theme_minimal()+
+  ggtitle('The distribution of parts of speech among the different toxic types')+
+  xlab('Type of toxicity')+
+  ylab('The amount of lexemes')+
+  scale_fill_brewer(palette = "Set2")+
+  theme(axis.text.x = element_blank())+
+  facet_wrap(~Pos)+
+  coord_cartesian(ylim = c(0, 250)) 
+```
+
+
+This figure illustrates the distribution of parts of speech across different types of toxic language. For the purpose of better illustrating the y-axis was cut to the 250, because of the big amount of nouns which was mentioned above.  Nouns appear to be the only type of part of speech that are presented in every type of toxicity, even in *hate_speech: lgbtq* where other parts of speech are not found. Among all parts of speech such types as *general insult*, *hate_speech: gender*, *hate_speech: nationality* are presented. It is interesting to note that even though there are almost 3 times less verb, their amount in the comments involving *threats* is higher than for nouns, and in comments with *profanity* is just tiny less. 
+Also, it is important to highlight how different distributions of adverbs is in comparison to other parts of speech. Adverbs appear to be a very small group, used only in common types of toxicity. 
+
+
+# Data Analysis
+
+## Chi-square 1
+
+For testing our future hypotheses we need to verify how our data is distributed as it could affect the methods that we are going to use. In order to check whether our data falls into normal distribution or not, we decided to use Shapiro-Wilcox test. Our null hypothesis is that the data is distributed normally. 
+
+
+```{r}
+shapiro.test(tox_data$tox_rate)
+```
+
+The results of the Shapiro test (W = 0.94896, p-value < 2.2e-16) test showed that on the interval of 99% we could reject our null hypothesis of data being distributed normally, as such in further analysis we have to be careful with the results of the tests and use the alternative methods of testing.
+
+
+As the toxic rate is discrete variable and type of toxicity is a categorical variable, we are going to use chi-squared test. But in order to do it, we have to know that at least 80% of expected values should be more than 5. 
+There are following hypothesis that we are going to check:
+
+H0: Type of toxic comment has no influence on the toxic rate of the comment
+
+H1: Type of toxic comment has influence on the toxic rate of the comment
+
+
+
+```{r}
+tox.tabulated <- tox_data %>%
+  select(tox_rate, tox_type) %>%
+  table()
+tox.tabulated
+```
+
+As we can see a lot of classes do not have all the presented ratings scores. So, in order to calculate the chi-score correctly we are going to delete certain columns: hate_speech: race, hate_speech: religion, harassment, and the rows with low toxicity rate. 
+
+
+```{r}
+tox.tab_short <- tox.tabulated[-c(1,2,3), -c(2, 4, 6, 7)]
+tox.tab_short
+```
+
+After removing the disturbing columns the table looks better. Now let's compare the results of chi-square for both tables.
+
+```{r}
+tox.chisq <- chisq.test(tox.tabulated)
+tox.chisq
+```
+```{r}
+round(tox.chisq$expected, 1)
+```
+
+Our concerns about the unsuitability of the first table proved to be correct. In the deleted rows and columns the expected values are less than 5.0 which results in the warning sign, while calculating the chi-square.
+
+```{r}
+tox.chisq1 <- chisq.test(tox.tab_short)
+tox.chisq1
+```
+```{r}
+round(tox.chisq1$expected, 1)
+```
+
+When it comes to the new table, the expected values are higher than 5.0, so we could trust the results of the chi-square. 
+
+Our results (X-squared = 185.24, df = 24, p-value < 2.2e-16) allow us to reject the null hypothesis about the type of toxic comment having no influence on the toxic rate of the comment as p-value is less than 1%. From this follows that certain types of toxic comment tend to have certain rating scores, for example "profanity" can be usually interpret as middle-toxicity, having the toxic ratings around 5-8. 
+
+
+```{r}
+colours <- brewer.pal(n = ncol(tox.tab_short), name = 'Set2')
+mosaicplot(tox.tab_short,main="Dependence of rating on toxicity type",
+           legend = TRUE,
+           xlab = 'Toxicity rate',
+          ylab = 'Type of toxicity',
+          col = colours, 
+          las = 1)
+```
+
+
+This figure depicts that the types of toxicity like *hate_speech: nationality* and *threat* tend to be interpreted as highly rude and offensive with scores 8-10. This could be explained by the cruelness of these comments, in which calls for death and violence can be found. *Profanity* is mainly used in the comments with middle levels of toxicity, as it is more about expliciting emotions like annoyance and shock rather than insulting and threats towards a person or situation. 
+
+
+## Mann–Whitney U test
+
+Here we would like to test the following hypotheses:
+
+H0: Number of words has no influence on the toxic rate of the comment
+
+H1: Number of words has influence on the toxic rate of the comment
+
+As the toxic rate is a discrete variable and number of words is also a discrete variable, we are going to use Welch's t-test or Mann–Whitney U test. But in order to do it, we have to check whether our values are distributed normally.
+
+```{r}
+shapiro_test1 <- shapiro.test(tox_data$lex_counts)
+shapiro_test2 <- shapiro.test(tox_data$tox_rate)
+shapiro_test1 
+shapiro_test2
+```
+Both p-values (W = 0.75728, p-value < 2.2e-16; W = 0.94896, p-value < 2.2e-16) are less than 0.05, so we can reject the null hypothesis about the normal distribution of the data. Thus, we are going to use unparametric analog of t-test, Mann–Whitney U test.
+
+```{r}
+wilcox_test_result <- wilcox.test(tox_data$lex_counts, tox_data$tox_rate, exact = FALSE)
+wilcox_test_result
+```
+
+Our results (W = 73700, p-value < 2.2e-16) allow us to reject the null hypothesis about the amount of toxic words having no influence on the toxic rate of the comment on the 99% interval as the p-value is less than 1%.
+
+## Chi-square 2
+
+We would like to test the following hypotheses:
+
+H0: Part of speech has no influence on the number of words
+
+H1: Part of speech has influence on the number of words
+
+As the number of words is discrete variable and part of speech is a categorical variable, we are going to use chi-square test. But in order to do it, we have to know that at least 80% of expected values should be more than 5.0
+
+
+
+```{r}
+lex.pos <- tox_data %>%
+  select(lex_counts, Pos) %>%
+  table()
+lex.pos
+```
+```{r}
+lex.pos_short <- lex.pos[-c(5), -c(3,4,5, 7)]
+lex.pos_short
+```
+
+As we already did in the previous chi-square test, we reduced the table by deleting the columns with null values like num, part, spro, intj.
+
+```{r}
+pos.chisq <- chisq.test(lex.pos_short)
+pos.chisq
+```
+```{r}
+round(pos.chisq$expected, 1)
+```
+```{r}
+mosaicplot(lex.pos_short,main="Dependence of the amount of words on part of speech",
+           legend = TRUE,
+           xlab = 'Amount the words',
+          ylab = 'Part of speech',
+          col = colours, 
+          las = 1)
+```
+
+
+Our results (X-squared = 43.419, df = 9, p-value = 1.805e-06) allow us to reject the null hypothesis about parts of speech having no influence on the number of words with p-value less than 1%. AS we see adjectives mainly appear in the sentences with 2 or more words, 3 being the most expected value. Nouns as the biggest class are used with any amount of words in the sentences, 1 and 4 being the most significant. 
+
+# Multi models
+
+One of the hardest part of our analysis was the manual annotation of toxic comments. There are a lot of parameters that influence the toxicity rate, including the perception of the annotator. We would like to see whether it is possible to predict the toxicity rates depending on the annotated data, without any help from human annotator. Also, it was interesting to find what kind of factors have more influence on the toxicity rate.For this purpose we chose to train **multinominal logistic regression**, because our target variable is a discrete variable with more than 2 categories and which could be interpreted as classification. 
+
+
+Firstly, we are going to train the model on all the columns to see which parameters are of use here:
+
+## Multimodel 1
+```{r}
+multi_model <- multinom(tox_rate ~ tox_type + response + phrase_types + lex_counts + Pos, data = tox_data)
+```
+```{r}
+summary(multi_model)
+```
+
+After training our model has scores (Residual Deviance: 6877.847, AIC: 7255.847)  that are far from ideal. For some data: rare parts of speech like NUM, PRO, INTJ, rare toxicity types: hate_speech: religion, hate_speech: race, lgbtq*, the errors scores are quite high which could disturb the work of the model.
+
+```{r}
+predicted_classes <- predict(multi_model, newdata = tox_data)
+probs <- predict(multi_model, newdata = tox_data, "probs")
+
+conf_matrix <- as.data.frame(table(predicted_classes, tox_data$tox_rate))
+```
+
+
+
+```{r}
+ggplot(conf_matrix, aes(x = Var2, y = predicted_classes, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
+
+The following figure presents the confusion matrix of the model predicted scores, as we see only ratings 7-8 are predicted with a good quality. The low rating scores (1-3) are not  predicted at all, which could be explained by insufficient amount of data. 
+
+## Multimodel 2
+
+In order to improve our results we are going to do the feature engineering on the dataset. We are going to transform the ratings into categorical groups and delete the columns with very high error scores: hate_speech: religion, post: inanimate. Also, we are going to remove the extra amount of nouns, reducing their quantity to 500. 
+We are creating 4 categories:
+
+1) **low_tox** - sentences with low toxicity with scores 1-3
+
+2) **mid_tox** - sentences with medium toxicity with scores 4-6
+
+3) **high_tox** - sentences with high toxicity with scores 7-8
+
+4) **extreme_tox** - sentences with extra toxicity with scores 9-10
+
+```{r}
+tox_clean <- tox_data %>%
+  select(-c(1, 2, 3, 7, 9)) %>%
+  mutate(
+    tox_group = factor(case_when(
+      tox_rate %in% 1:3 ~ "low_tox",
+      tox_rate %in% 4:6 ~ "mid_tox",
+      tox_rate %in% 7:8 ~ "high_tox",
+      tox_rate %in% 9:10 ~ "extreme_tox"
+    ), levels = c("low_tox", "mid_tox", "high_tox", "extreme_tox")),
+    across(tox_type, as.factor)
+  )%>%
+  filter(tox_type != "hate_speech: religion")%>%
+  filter(response != "post: inanimate")%>%
+  group_by(Pos)%>%
+  mutate(keep = ifelse(Pos == "S", row_number() <= 500, TRUE)) %>%
+  filter(keep) %>%
+  select(-keep) %>%
+  filter(n()>50)%>%
+  droplevels()
+
+glimpse(tox_clean)
+```
+```{r}
+summary(tox_clean)
+```
+```{r}
+multi_model_clean <- multinom(tox_group ~ tox_type + response + phrase_types + lex_counts + Pos, data = tox_clean)
+```
+```{r}
+summary(multi_model_clean)
+```
+
+As we can see both of our metrics have significantly improved, almost threefold (Residual Deviance: 2347.903, AIC: 2437.903 ). 
+
+```{r}
+predicted_classes1 <- predict(multi_model_clean, newdata = tox_clean)
+probs1 <- predict(multi_model_clean, newdata = tox_clean, "probs")
+
+conf_matrix1 <- as.data.frame(table(predicted_classes1, tox_clean$tox_group))
+```
+
+```{r}
+ggplot(conf_matrix1, aes(x = Var2, y = predicted_classes1, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
+The following figure demonstrates the confusion matrix between actual and predicted scores of ratings. We can see that the class with lox toxicity isn't predicted at all, which could be explained by the insufficient amount of comments of this type. Classes with middle and high toxic rate are predicted the best, though they are often confused, but it seems that the difference between classes is not so significant.
+
+## Multimodel 3
+
+Here we would like to create a model that would only depend on the amount of toxic words and part of speech in order to see whether part of speech could influence the toxicity rate.
+```{r}
+multi_model_pos <- multinom(tox_group ~ lex_counts + Pos, data = tox_clean)
+```
+```{r}
+summary(multi_model_pos)
+```
+
+The scores of the model resemble the scores of the model trained on the "clean" dataset (Residual Deviance: 2560.184, AIC: 2590.184).
+
+```{r}
+gg_effects <- ggpredict(multi_model_pos, terms = names(coef(multi_model_pos))[-1])
+plot(gg_effects)
+```
+
+Looking closely at the effects of the model, we could notice that only for comments with extreme toxicity the amount of words makes differences and influences the result. For low and medium toxicity the tendency is reversed, less words have more positive impact on the model than more words. Speaking about parts of speech, it is interesting to note that nouns have more effect on the middle toxicity rating scores, while adverbs are more likely to be the sign of high toxicity group.
+
+```{r}
+predicted_classes_pos <- predict(multi_model_pos, newdata = tox_clean)
+probs_pos <- predict(multi_model_pos, newdata = tox_clean, "probs")
+
+conf_matrix_pos <- as.data.frame(table(predicted_classes_pos, tox_clean$tox_group))
+```
+
+```{r}
+ggplot(conf_matrix_pos, aes(x = Var2, y = predicted_classes_pos, fill = Freq)) +
+  geom_tile(color = "white", alpha = 0.8) +
+  geom_text(aes(label = Freq), size = 6) +
+  labs(title = "Confusion Matrix: Predicted vs Actual Toxicity Rate",
+       x = "Actual Toxicity Rate",
+       y = "Predicted Toxicity Rate") +
+  scale_fill_gradient(low = "skyblue2", high = "violetred3") +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+        panel.grid = element_blank())
+```
+
+The figure above depicts the confusion matrix for actual and predicted scores. As we see, this time not only low,but also extreme toxicity are badly predicted. The middle and high toxicity classes are often confused. 
+
+```{r}
+aic_table <- AIC(multi_model, multi_model_clean, multi_model_pos)
+aic_table$delta_AIC <- aic_table$AIC - min(aic_table$AIC)
+
+ggplot(aic_table,aes(x = rownames(aic_table), y = AIC, fill = rownames(aic_table))) +
+  geom_col() +
+  labs(x = "Model", y = "AIC") +
+  ggtitle('Comparison of models by AIC score')+
+  xlab('Type of model')+
+  geom_text(aes(label = round(AIC)), vjust = -0.5, size = 3) +
+  ylab('AIC score')+
+  scale_fill_brewer(palette = "Set2")+
+  theme_minimal()
+```
+
+The graphic depicts a comparison of three different models based on their AIC (Akaike Information Criterion) scores. AIC is a measure of model quality, where lower values indicate better models (better fit with fewer parameters. In this figure we can see that **multinominal model clean** trained on the engineered data gives out the best performance with the scire of 2438. The success could be explained by the feature engineering, data filtering and grouping of target variable. 
+
+# Related works
+
+The task of finding and filtering toxicity is not unique and new, it often appears in IT competitions on Kaggle and other different sources. For example, for Russian language the dataset of Russian Toxic comments exist [https://www.kaggle.com/datasets/alexandersemiletov/toxic-russian-comments]. The annotation in this corpus is easier and more primitive in some way, for example, there are only 3 types of toxicity such as: insult, threat and obscenity, which could be insufficient for the tasks of linguistic expertise. 
+
+The other existing corpus which resembles ours in terms of the annotation is Jigsaw Unintended Bias in Toxicity Classification [https://www.kaggle.com/competitions/jigsaw-unintended-bias-in-toxicity-classification/data]. This dataset is collected for English language and also has the ratings classification, but instead of types of toxicity it focuses on the identities that act as the target for hate and negativity.  
+
+Both of this datasets show that it seems plausible to use our dataset for model training and improving the qualities of the existing filter algorithms. How this work could be done is explained in the article Detoxifying Language Models with a Toxic Corpus [https://aclanthology.org/2022.ltedi-1.6.pdf]. By incorporating toxic data during fine-tuning, the authors demonstrate significant improvements in model safety, measured through reduced harmful outputs and lower bias metrics. Key results show that models trained with this approach achieve better detoxification performance compared to baseline methods, while maintaining linguistic quality. The study highlights the dual utility of toxic corpora—both as a diagnostic tool and a corrective resource—to enhance responsible AI deployment.
+
+
+# Discussion
+
+While we were analysing our data, we found how abnormally the distribution was. Not all the types were presented in the equal matter, which could have hardly influenced the results. Even though we tried to use engineered data, its still could have disturbed the results of chi-square test and t-test. The Welchs's t-test would be an option to use here. Another reason for concern would be the type of the model, as we were predicting rating scores the ordinal linear model could have been a better fit here if the data distribution was better. I could only predict that an enlarged dataset would outperform and decrease the error values in model training.  
+
+To conclude, our analysis provides invaluable insights in the specific of the usage of the toxic language in Russian and shows the possibilities and perspectives of the toxic corpus for further tasks of classification and toxicity filtration in machine learning and fine-tuning.  
